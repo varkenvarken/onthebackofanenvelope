@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rainwater Capture: Water Saved 3D Plot</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            height: 100vh;
+        }
+
+        #control-panel {
+            background: #f5f6f8;
+            border-right: 1px solid #ddd;
+            padding: 16px;
+            overflow: auto;
+        }
+
+        #control-panel h1 {
+            margin-top: 0;
+            font-size: 18px;
+        }
+
+        #control-panel label {
+            display: block;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+
+        #control-panel input[type="number"] {
+            width: 100%;
+            padding: 6px;
+            margin-top: 4px;
+            font-size: 14px;
+        }
+
+        #control-panel button {
+            margin-top: 18px;
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border: 1px solid #007bff;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+        }
+
+        #status {
+            color: #333;
+            margin-top: 12px;
+            font-size: 13px;
+            min-height: 18px;
+        }
+
+        #plot {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <aside id="control-panel">
+        <h1>Configure Simulation</h1>
+
+        <label for="p">Rain probability per day (p)</label>
+        <input id="p" type="number" min="0" max="1" step="0.01" value="0.4" />
+
+        <label for="beta">Average rain on wet day (β in mm)</label>
+        <input id="beta" type="number" min="0" step="0.1" value="5" />
+
+        <label for="irrigationArea">Irrigation area (m²)</label>
+        <input id="irrigationArea" type="number" min="1" step="1" value="100" />
+
+        <label for="runs">Monte Carlo runs per point</label>
+        <input id="runs" type="number" min="1" step="1" value="300" />
+
+        <button id="runBtn">Run simulation and plot</button>
+
+        <div id="status"></div>
+
+        <p>Range of capture area: 10..80 m² (step 10)</p>
+        <p>Range of storage capacity: 250..4000 L (step 250)</p>
+    </aside>
+
+    <main id="plot"></main>
+
+    <script>
+        const DOSE = 5;
+        const MAX_DEFICIT = 5;
+
+        function evaporation(day) {
+            const month = Math.floor((day - 1) / 30);
+            const values = [2.33, 3.17, 3.76, 3.45, 3.04, 2.07];
+            return values[Math.max(0, Math.min(values.length - 1, month))];
+        }
+
+        function simulateSeason(p, beta, captureArea, storageCapacity, irrigationArea, days = 180) {
+            let storage = storageCapacity;
+            let deficit = 0;
+            let waterSaved = 0;
+
+            for (let day = 1; day <= days; day++) {
+                let amount = 0;
+                if (Math.random() < p) {
+                    amount = -beta * Math.log(1 - Math.random());
+                    const potentialStorage = storage + captureArea * amount;
+                    storage = Math.min(storageCapacity, potentialStorage);
+                }
+
+                deficit += evaporation(day) - amount;
+
+                if (deficit > MAX_DEFICIT) {
+                    const waterNeeded = DOSE * irrigationArea;
+                    const waterFromStorage = Math.min(waterNeeded, storage);
+                    deficit -= DOSE;
+                    storage -= waterFromStorage;
+                    waterSaved += waterFromStorage;
+                }
+            }
+
+            return waterSaved / 1000; // convert L to m^3
+        }
+
+        function computeGrid(p, beta, irrigationArea, runs, onProgress) {
+            const captureAreas = Array.from({ length: 8 }, (_, i) => (i + 1) * 10);
+            const storageCapacities = Array.from({ length: 16 }, (_, i) => (i + 1) * 250);
+
+            const z = [];
+            for (let i = 0; i < captureAreas.length; i++) {
+                z[i] = [];
+                for (let j = 0; j < storageCapacities.length; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < runs; k++) {
+                        sum += simulateSeason(p, beta, captureAreas[i], storageCapacities[j], irrigationArea);
+                    }
+                    z[i][j] = sum / runs;
+                }
+                if (onProgress) onProgress((i + 1) / captureAreas.length);
+            }
+
+            return { x: storageCapacities, y: captureAreas, z };
+        }
+
+        function plotSurface(grid, irrigationArea, p, beta) {
+            const trace = {
+                x: grid.x,
+                y: grid.y,
+                z: grid.z,
+                type: 'surface',
+                colorscale: 'Viridis',
+                contours: { z: { show: true, usecolormap: true, highlightcolor: '#42f462', project: { z: true } } },
+            };
+
+            const layout = {
+                title: `Average Water Saved (m³) with irrigation area ${irrigationArea} m², p=${p}, β=${beta}`,
+                scene: {
+                    xaxis: { title: 'Storage capacity (L)' },
+                    yaxis: { title: 'Capture area (m²)' },
+                    zaxis: { title: 'Water saved (m³)' },
+                },
+                margin: { l: 0, r: 0, t: 40, b: 0 }
+            };
+
+            Plotly.newPlot('plot', [trace], layout, { responsive: true });
+        }
+
+        document.getElementById('runBtn').addEventListener('click', () => {
+            const p = parseFloat(document.getElementById('p').value);
+            const beta = parseFloat(document.getElementById('beta').value);
+            const irrigationArea = parseFloat(document.getElementById('irrigationArea').value);
+            const runs = parseInt(document.getElementById('runs').value, 10);
+            const status = document.getElementById('status');
+
+            if (!(p >= 0 && p <= 1 && beta > 0 && irrigationArea > 0 && runs > 0)) {
+                status.textContent = 'Please enter valid positive values and 0<= p <=1';
+                return;
+            }
+
+            status.textContent = 'Running simulation...';
+
+            setTimeout(() => {
+                const grid = computeGrid(p, beta, irrigationArea, runs, progress => {
+                    status.textContent = `Computing grid ${Math.round(progress * 100)}%`;
+                });
+                plotSurface(grid, irrigationArea, p, beta);
+                status.textContent = `Done (runs=${runs} per point).`;
+            }, 20);
+        });
+
+        // initial render
+        document.getElementById('runBtn').click();
+    </script>
+
+    <footer># rain_simulator.py (c) 2026 Michel Anders, Attribution-NonCommercial-NoDerivatives 4.0 Internationa</footer>
+</body>
+
+</html>
