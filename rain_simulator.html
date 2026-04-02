@@ -79,6 +79,24 @@
         <label for="irrigationArea">Irrigation area (m²)</label>
         <input id="irrigationArea" type="number" min="1" step="1" value="100" />
 
+        <label for="et1">ET Apr (mm/day)</label>
+        <input id="et1" type="number" min="0" step="0.01" value="2.33" />
+
+        <label for="et2">ET May (mm/day)</label>
+        <input id="et2" type="number" min="0" step="0.01" value="3.17" />
+
+        <label for="et3">ET Jun (mm/day)</label>
+        <input id="et3" type="number" min="0" step="0.01" value="3.76" />
+
+        <label for="et4">ET Jul (mm/day)</label>
+        <input id="et4" type="number" min="0" step="0.01" value="3.45" />
+
+        <label for="et5">ET Aug (mm/day)</label>
+        <input id="et5" type="number" min="0" step="0.01" value="3.04" />
+
+        <label for="et6">ET Sep (mm/day)</label>
+        <input id="et6" type="number" min="0" step="0.01" value="2.07" />
+
         <label for="runs">Monte Carlo runs per point</label>
         <input id="runs" type="number" min="1" step="1" value="300" />
 
@@ -96,13 +114,12 @@
         const DOSE = 5;
         const MAX_DEFICIT = 5;
 
-        function evaporation(day) {
+        function evaporation(day, etValues) {
             const month = Math.floor((day - 1) / 30);
-            const values = [2.33, 3.17, 3.76, 3.45, 3.04, 2.07];
-            return values[Math.max(0, Math.min(values.length - 1, month))];
+            return etValues[Math.max(0, Math.min(etValues.length - 1, month))];
         }
 
-        function simulateSeason(p, beta, captureArea, storageCapacity, irrigationArea, days = 180) {
+        function simulateSeason(p, beta, captureArea, storageCapacity, irrigationArea, etValues, days = 180) {
             let storage = storageCapacity;
             let deficit = 0;
             let waterSaved = 0;
@@ -115,7 +132,7 @@
                     storage = Math.min(storageCapacity, potentialStorage);
                 }
 
-                deficit += evaporation(day) - amount;
+                deficit += evaporation(day, etValues) - amount;
 
                 if (deficit > MAX_DEFICIT) {
                     const waterNeeded = DOSE * irrigationArea;
@@ -129,7 +146,7 @@
             return waterSaved / 1000; // convert L to m^3
         }
 
-        function computeGrid(p, beta, irrigationArea, runs, onProgress) {
+        function computeGrid(p, beta, irrigationArea, etValues, runs, onProgress) {
             const captureAreas = Array.from({ length: 8 }, (_, i) => (i + 1) * 10);
             const storageCapacities = Array.from({ length: 16 }, (_, i) => (i + 1) * 250);
 
@@ -139,7 +156,7 @@
                 for (let j = 0; j < storageCapacities.length; j++) {
                     let sum = 0;
                     for (let k = 0; k < runs; k++) {
-                        sum += simulateSeason(p, beta, captureAreas[i], storageCapacities[j], irrigationArea);
+                        sum += simulateSeason(p, beta, captureAreas[i], storageCapacities[j], irrigationArea, etValues);
                     }
                     z[i][j] = sum / runs;
                 }
@@ -176,10 +193,18 @@
             const p = parseFloat(document.getElementById('p').value);
             const beta = parseFloat(document.getElementById('beta').value);
             const irrigationArea = parseFloat(document.getElementById('irrigationArea').value);
+            const etValues = [
+                parseFloat(document.getElementById('et1').value),
+                parseFloat(document.getElementById('et2').value),
+                parseFloat(document.getElementById('et3').value),
+                parseFloat(document.getElementById('et4').value),
+                parseFloat(document.getElementById('et5').value),
+                parseFloat(document.getElementById('et6').value),
+            ];
             const runs = parseInt(document.getElementById('runs').value, 10);
             const status = document.getElementById('status');
 
-            if (!(p >= 0 && p <= 1 && beta > 0 && irrigationArea > 0 && runs > 0)) {
+            if (!(p >= 0 && p <= 1 && beta > 0 && irrigationArea > 0 && runs > 0 && etValues.every(v => v >= 0))) {
                 status.textContent = 'Please enter valid positive values and 0<= p <=1';
                 return;
             }
@@ -187,7 +212,7 @@
             status.textContent = 'Running simulation...';
 
             setTimeout(() => {
-                const grid = computeGrid(p, beta, irrigationArea, runs, progress => {
+                const grid = computeGrid(p, beta, irrigationArea, etValues, runs, progress => {
                     status.textContent = `Computing grid ${Math.round(progress * 100)}%`;
                 });
                 plotSurface(grid, irrigationArea, p, beta);
@@ -199,7 +224,8 @@
         document.getElementById('runBtn').click();
     </script>
 
-    <footer># rain_simulator.py (c) 2026 Michel Anders, Attribution-NonCommercial-NoDerivatives 4.0 Internationa</footer>
+    <footer># rain_simulator.py (c) 2026 Michel Anders, Attribution-NonCommercial-NoDerivatives 4.0 Internationa
+    </footer>
 </body>
 
 </html>
